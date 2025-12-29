@@ -39,7 +39,7 @@ class EditorOverlayActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "EditorOverlay"
-        private const val GRID_SIZE = 4
+        const val GRID_SIZE = 4
         private const val TARGET_FPS = 60
     }
 
