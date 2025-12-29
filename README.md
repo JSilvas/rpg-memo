@@ -1,2 +1,4 @@
 # rpg-memo
-PROJECT: Memo Widget (Android) PHASE: 0 - Technical Validation Spike  GOAL: Validate that a Bitmap-rendered widget + transparent overlay pattern feels native on Samsung devices.  DELIVERABLES: 1. Minimal 4x4 
+
+## Summary
+Memo is a "digital sticky note" widget for Android that enforces prioritization through spatial constraints. Inspired by retro RPG inventory systems (e.g., Resident Evil 4, Deus Ex), users manage tasks as physical "blocks" on a grid. There is no scrolling; if a task doesn't fit, something else must be completed or deleted. It lives entirely on the Home Screen as a native widget.
