@@ -61,4 +61,7 @@ dependencies {
 
     // Kotlin Serialization (Phase 1)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+
+    // Lifecycle (Phase 1)
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 }

@@ -8,11 +8,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,126 +19,130 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import kotlin.math.min
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
+import com.memo.widget.model.*
+import com.memo.widget.repository.BlockRepository
+import kotlinx.coroutines.launch
 
 /**
- * Phase 0: Transparent overlay that launches from widget tap.
- * CRITICAL VALIDATION: Does this feel seamless on Samsung One UI?
+ * Phase 1: Task block editor with drag-to-place and text rendering.
  *
- * Requirements:
- * - Transparent background with dimming
- * - No animation flicker
- * - 60fps during drag operations
- * - Instant cell tap response
+ * Features:
+ * - GridState for collision detection
+ * - Drag blocks to move them
+ * - Tap to select/delete blocks
+ * - Text rendering in blocks
+ * - DataStore persistence
  */
 class EditorOverlayActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "EditorOverlay"
         const val GRID_SIZE = 4
-        private const val TARGET_FPS = 60
     }
 
-    private val filledCells = mutableStateOf<Set<Int>>(emptySet())
-    private var frameCount = 0L
-    private var lastFpsLog = System.currentTimeMillis()
+    private lateinit var repository: BlockRepository
+    private lateinit var gridState: GridState
+    private val selectedBlockId = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Load existing filled cells
-        filledCells.value = getFilledCells()
+        repository = BlockRepository(this)
+        gridState = GridState(GRID_SIZE)
 
-        Log.d(TAG, "Overlay opened with ${filledCells.value.size} filled cells")
+        // Load blocks from repository
+        lifecycleScope.launch {
+            val blocks = repository.getBlocks()
+            gridState.setBlocks(blocks)
+            Log.d(TAG, "Loaded ${blocks.size} blocks from repository")
+        }
 
         setContent {
             EditorOverlayContent(
-                filledCells = filledCells.value,
-                onCellTap = { cellIndex ->
-                    toggleCell(cellIndex)
+                gridState = gridState,
+                selectedBlockId = selectedBlockId.value,
+                onBlockTap = { blockId ->
+                    selectedBlockId.value = if (selectedBlockId.value == blockId) null else blockId
                 },
-                onDrag = { offset ->
-                    logFrameRate()
+                onBlockMove = { blockId, newPosition ->
+                    if (gridState.moveBlock(blockId, newPosition)) {
+                        Log.d(TAG, "Block $blockId moved to $newPosition")
+                    }
+                },
+                onAddBlock = {
+                    // Add a sample 2x2 block for testing
+                    val block = TaskBlock(
+                        shape = BlockShape.SIZE_2X2,
+                        position = GridPosition(0, 0),
+                        title = "Task ${gridState.getBlocks().size + 1}",
+                        priority = Priority.NORMAL
+                    )
+                    if (gridState.addBlock(block)) {
+                        Log.d(TAG, "Added block: ${block.title}")
+                    }
+                },
+                onDeleteBlock = {
+                    selectedBlockId.value?.let { blockId ->
+                        gridState.removeBlock(blockId)
+                        selectedBlockId.value = null
+                        Log.d(TAG, "Deleted block $blockId")
+                    }
                 },
                 onClose = {
-                    closeOverlay()
+                    saveAndClose()
                 }
             )
         }
     }
 
-    private fun toggleCell(cellIndex: Int) {
-        filledCells.value = if (cellIndex in filledCells.value) {
-            filledCells.value - cellIndex
-        } else {
-            filledCells.value + cellIndex
-        }
-        Log.d(TAG, "Cell $cellIndex toggled. Filled cells: ${filledCells.value}")
-    }
+    private fun saveAndClose() {
+        lifecycleScope.launch {
+            val blocks = gridState.getBlocks()
+            repository.saveBlocks(blocks)
+            Log.d(TAG, "Saved ${blocks.size} blocks to repository")
 
-    private fun logFrameRate() {
-        frameCount++
-        val now = System.currentTimeMillis()
-        val elapsed = now - lastFpsLog
+            // Trigger widget update
+            val intent = android.content.Intent(this@EditorOverlayActivity, MemoWidgetProvider::class.java).apply {
+                action = MemoWidgetProvider.ACTION_REFRESH
+            }
+            sendBroadcast(intent)
 
-        if (elapsed >= 1000) {
-            val fps = frameCount * 1000 / elapsed
-            Log.d(TAG, "FPS: $fps (target: $TARGET_FPS)")
-            frameCount = 0
-            lastFpsLog = now
+            finish()
         }
     }
 
-    private fun closeOverlay() {
-        Log.d(TAG, "Closing overlay, saving ${filledCells.value.size} filled cells")
-        saveFilledCells(filledCells.value)
-
-        // Trigger widget update
-        val intent = android.content.Intent(this, MemoWidgetProvider::class.java).apply {
-            action = MemoWidgetProvider.ACTION_REFRESH
-            putExtra("filled_cells", filledCells.value.toIntArray())
-        }
-        sendBroadcast(intent)
-
-        finish()
-    }
-
-    private fun getFilledCells(): Set<Int> {
-        val prefs = getSharedPreferences("memo_phase0", MODE_PRIVATE)
-        val cellsString = prefs.getString("filled_cells", "") ?: ""
-        return if (cellsString.isEmpty()) {
-            emptySet()
-        } else {
-            cellsString.split(",").mapNotNull { it.toIntOrNull() }.toSet()
-        }
-    }
-
-    private fun saveFilledCells(cells: Set<Int>) {
-        val prefs = getSharedPreferences("memo_phase0", MODE_PRIVATE)
-        prefs.edit().putString("filled_cells", cells.joinToString(",")).apply()
-    }
-
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        closeOverlay()
+        saveAndClose()
         super.onBackPressed()
     }
 }
 
 @Composable
 fun EditorOverlayContent(
-    filledCells: Set<Int>,
-    onCellTap: (Int) -> Unit,
-    onDrag: (Offset) -> Unit,
+    gridState: GridState,
+    selectedBlockId: String?,
+    onBlockTap: (String) -> Unit,
+    onBlockMove: (String, GridPosition) -> Unit,
+    onAddBlock: () -> Unit,
+    onDeleteBlock: () -> Unit,
     onClose: () -> Unit
 ) {
-    // Phase 0 color scheme (retro RPG inspired)
+    val blocks by remember { derivedStateOf { gridState.getBlocks() } }
+
+    // Phase 0 colors (keeping retro palette)
     val bgColor = Color(0xFF1A1A2E)
     val gridColor = Color(0xFF16213E)
     val borderColor = Color(0xFF0F3460)
-    val fillColor = Color(0xFFE94560)
     val dimColor = Color(0x80000000)
 
     Box(
@@ -148,44 +151,58 @@ fun EditorOverlayContent(
             .background(dimColor)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
-                    // Tap outside grid to close
+                    // Tap outside to close
                     onClose()
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        // 4x4 Grid
-        GridCanvas(
-            gridSize = EditorOverlayActivity.GRID_SIZE,
-            filledCells = filledCells,
-            bgColor = bgColor,
-            gridColor = gridColor,
-            borderColor = borderColor,
-            fillColor = fillColor,
-            onCellTap = onCellTap,
-            onDrag = onDrag
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Grid Canvas
+            BlockGridCanvas(
+                gridState = gridState,
+                selectedBlockId = selectedBlockId,
+                bgColor = bgColor,
+                gridColor = gridColor,
+                borderColor = borderColor,
+                onBlockTap = onBlockTap,
+                onBlockMove = onBlockMove
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Controls
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onAddBlock) {
+                    Text("Add Block")
+                }
+                if (selectedBlockId != null) {
+                    Button(onClick = onDeleteBlock) {
+                        Text("Delete")
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun GridCanvas(
-    gridSize: Int,
-    filledCells: Set<Int>,
+fun BlockGridCanvas(
+    gridState: GridState,
+    selectedBlockId: String?,
     bgColor: Color,
     gridColor: Color,
     borderColor: Color,
-    fillColor: Color,
-    onCellTap: (Int) -> Unit,
-    onDrag: (Offset) -> Unit
+    onBlockTap: (String) -> Unit,
+    onBlockMove: (String, GridPosition) -> Unit
 ) {
     val density = LocalDensity.current
     val gridSizeDp = 300.dp
     val gridSizePx = with(density) { gridSizeDp.toPx() }
-    val cellSize = gridSizePx / gridSize
-    val cellPadding = 4f
-    val cornerRadius = 8f
-    val strokeWidth = 2f
+    val cellSize = gridSizePx / EditorOverlayActivity.GRID_SIZE
+
+    var draggedBlock by remember { mutableStateOf<TaskBlock?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
 
     Canvas(
         modifier = Modifier
@@ -194,42 +211,117 @@ fun GridCanvas(
             .padding(8.dp)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
-                    val col = (offset.x / cellSize).toInt().coerceIn(0, gridSize - 1)
-                    val row = (offset.y / cellSize).toInt().coerceIn(0, gridSize - 1)
-                    val cellIndex = row * gridSize + col
-                    onCellTap(cellIndex)
+                    val col = (offset.x / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
+                    val row = (offset.y / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
+                    gridState.getBlockAtCell(col, row)?.let { block ->
+                        onBlockTap(block.id)
+                    }
                 }
             }
             .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    onDrag(dragAmount)
-                }
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val col = (offset.x / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
+                        val row = (offset.y / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
+                        draggedBlock = gridState.getBlockAtCell(col, row)
+                        dragOffset = Offset.Zero
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        dragOffset += dragAmount
+                    },
+                    onDragEnd = {
+                        draggedBlock?.let { block ->
+                            // Calculate new position based on drag offset
+                            val newCol = ((block.position.x * cellSize + dragOffset.x) / cellSize)
+                                .toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
+                            val newRow = ((block.position.y * cellSize + dragOffset.y) / cellSize)
+                                .toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
+
+                            val newPosition = GridPosition(newCol, newRow)
+                            if (newPosition != block.position) {
+                                onBlockMove(block.id, newPosition)
+                            }
+                        }
+                        draggedBlock = null
+                        dragOffset = Offset.Zero
+                    }
+                )
             }
     ) {
-        // Draw grid cells
-        for (row in 0 until gridSize) {
-            for (col in 0 until gridSize) {
-                val cellIndex = row * gridSize + col
+        val cellPadding = 4f
+        val cornerRadius = 8f
+        val strokeWidth = 2f
+
+        // Draw grid background cells
+        for (row in 0 until EditorOverlayActivity.GRID_SIZE) {
+            for (col in 0 until EditorOverlayActivity.GRID_SIZE) {
                 val x = col * cellSize + cellPadding
                 val y = row * cellSize + cellPadding
 
-                // Fill cell
-                val color = if (cellIndex in filledCells) fillColor else gridColor
                 drawRoundRect(
-                    color = color,
+                    color = gridColor,
                     topLeft = Offset(x, y),
                     size = Size(cellSize - cellPadding * 2, cellSize - cellPadding * 2),
                     cornerRadius = CornerRadius(cornerRadius, cornerRadius)
                 )
+            }
+        }
 
-                // Border
-                drawRoundRect(
-                    color = borderColor,
-                    topLeft = Offset(x, y),
-                    size = Size(cellSize - cellPadding * 2, cellSize - cellPadding * 2),
-                    cornerRadius = CornerRadius(cornerRadius, cornerRadius),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth)
+        // Draw blocks
+        gridState.getBlocks().forEach { block ->
+            val isDragging = draggedBlock?.id == block.id
+            val isSelected = selectedBlockId == block.id
+
+            // Calculate block position (with drag offset if dragging)
+            val baseX = block.position.x * cellSize
+            val baseY = block.position.y * cellSize
+            val offsetX = if (isDragging) dragOffset.x else 0f
+            val offsetY = if (isDragging) dragOffset.y else 0f
+
+            val x = baseX + offsetX + cellPadding
+            val y = baseY + offsetY + cellPadding
+
+            // Block size
+            val width = block.shape.width * cellSize - cellPadding * 2
+            val height = block.shape.height * cellSize - cellPadding * 2
+
+            // Block color
+            val color = Color(block.getColor().hex)
+            val alpha = if (isDragging) 0.7f else 1f
+
+            // Draw block background
+            drawRoundRect(
+                color = color.copy(alpha = alpha),
+                topLeft = Offset(x, y),
+                size = Size(width, height),
+                cornerRadius = CornerRadius(cornerRadius, cornerRadius)
+            )
+
+            // Draw border (thicker if selected)
+            drawRoundRect(
+                color = if (isSelected) Color.White else borderColor,
+                topLeft = Offset(x, y),
+                size = Size(width, height),
+                cornerRadius = CornerRadius(cornerRadius, cornerRadius),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = if (isSelected) strokeWidth * 2 else strokeWidth
+                )
+            )
+
+            // Draw text
+            drawIntoCanvas { canvas ->
+                val textPaint = android.graphics.Paint()
+                textPaint.isAntiAlias = true
+                textPaint.textSize = 14.dp.toPx()
+                textPaint.color = android.graphics.Color.WHITE
+                textPaint.textAlign = android.graphics.Paint.Align.CENTER
+
+                canvas.nativeCanvas.drawText(
+                    block.title,
+                    x + width / 2,
+                    y + height / 2 + textPaint.textSize / 3,
+                    textPaint
                 )
             }
         }

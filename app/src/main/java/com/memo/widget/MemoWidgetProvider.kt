@@ -7,10 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.widget.RemoteViews
+import com.memo.widget.repository.BlockRepository
+import kotlinx.coroutines.runBlocking
 
 /**
- * Phase 0: Widget provider that renders a static Bitmap and launches the overlay on tap.
- * Critical test: Does the transparent overlay feel native on Samsung One UI?
+ * Phase 1: Widget provider that renders task blocks and launches the overlay on tap.
  */
 class MemoWidgetProvider : AppWidgetProvider() {
 
@@ -39,11 +40,8 @@ class MemoWidgetProvider : AppWidgetProvider() {
     ) {
         Log.d(TAG, "onUpdate called for ${appWidgetIds.size} widgets")
 
-        // Get filled cells from storage (stubbed for Phase 0)
-        val filledCells = getFilledCells(context)
-
         appWidgetIds.forEach { appWidgetId ->
-            updateAppWidget(context, appWidgetManager, appWidgetId, filledCells)
+            updateAppWidget(context, appWidgetManager, appWidgetId)
         }
     }
 
@@ -51,10 +49,8 @@ class MemoWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
 
         when (intent.action) {
-            ACTION_REFRESH -> {
-                val filledCells = intent.getIntArrayExtra(EXTRA_FILLED_CELLS)?.toSet() ?: emptySet()
-                saveFilledCells(context, filledCells)
-
+            ACTION_REFRESH, Intent.ACTION_BOOT_COMPLETED -> {
+                Log.d(TAG, "onReceive: ${intent.action}")
                 val appWidgetManager = AppWidgetManager.getInstance(context)
                 val appWidgetIds = appWidgetManager.getAppWidgetIds(
                     android.content.ComponentName(context, MemoWidgetProvider::class.java)
@@ -67,12 +63,23 @@ class MemoWidgetProvider : AppWidgetProvider() {
     private fun updateAppWidget(
         context: Context,
         appWidgetManager: AppWidgetManager,
-        appWidgetId: Int,
-        filledCells: Set<Int>
+        appWidgetId: Int
     ) {
-        Log.d(TAG, "Updating widget $appWidgetId with ${filledCells.size} filled cells")
+        try {
+            // Load blocks from repository
+            val repository = BlockRepository(context)
+            val blocks = runBlocking {
+                try {
+                    repository.getBlocks()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to load blocks", e)
+                    emptyList()
+                }
+            }
 
-        // Get widget dimensions (use default 4x4 cells for Phase 0)
+            Log.d(TAG, "Updating widget $appWidgetId with ${blocks.size} blocks")
+
+        // Get widget dimensions
         val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
         val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
         val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 250)
@@ -82,9 +89,9 @@ class MemoWidgetProvider : AppWidgetProvider() {
         val widthPx = (widthDp * density).toInt()
         val heightPx = (heightDp * density).toInt()
 
-        // Render bitmap
+        // Render bitmap with task blocks
         val renderer = BitmapRenderer(context)
-        val bitmap = renderer.renderWidget(widthPx, heightPx, filledCells)
+        val bitmap = renderer.renderWidgetWithBlocks(widthPx, heightPx, blocks)
 
         // Create RemoteViews with single ImageView
         val views = RemoteViews(context.packageName, R.layout.widget_memo)
@@ -102,24 +109,11 @@ class MemoWidgetProvider : AppWidgetProvider() {
         )
         views.setOnClickPendingIntent(R.id.widget_image, pendingIntent)
 
-        // Update widget
-        appWidgetManager.updateAppWidget(appWidgetId, views)
-        Log.d(TAG, "Widget $appWidgetId updated successfully")
-    }
-
-    // Phase 0: Stub persistence (use SharedPreferences for simplicity)
-    private fun getFilledCells(context: Context): Set<Int> {
-        val prefs = context.getSharedPreferences("memo_phase0", Context.MODE_PRIVATE)
-        val cellsString = prefs.getString("filled_cells", "") ?: ""
-        return if (cellsString.isEmpty()) {
-            emptySet()
-        } else {
-            cellsString.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+            // Update widget
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+            Log.d(TAG, "Widget $appWidgetId updated successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update widget $appWidgetId", e)
         }
-    }
-
-    private fun saveFilledCells(context: Context, cells: Set<Int>) {
-        val prefs = context.getSharedPreferences("memo_phase0", Context.MODE_PRIVATE)
-        prefs.edit().putString("filled_cells", cells.joinToString(",")).apply()
     }
 }
