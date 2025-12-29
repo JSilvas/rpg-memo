@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple grid icon for launcher -->
+    <group
+        android:scaleX="0.7"
+        android:scaleY="0.7"
+        android:translateX="16"
+        android:translateY="16">
+        <!-- 4x4 grid representation -->
+        <path
+            android:fillColor="#E94560"
+            android:pathData="M20,20h15v15h-15z"/>
+        <path
+            android:fillColor="#E94560"
+            android:pathData="M40,20h15v15h-15z"/>
+        <path
+            android:fillColor="#16213E"
+            android:pathData="M60,20h15v15h-15z"/>
+        <path
+            android:fillColor="#16213E"
+            android:pathData="M20,40h15v15h-15z"/>
+        <path
+            android:fillColor="#E94560"
+            android:pathData="M40,40h15v15h-15z"/>
+        <path
+            android:fillColor="#16213E"
+            android:pathData="M60,40h15v15h-15z"/>
+        <path
+            android:fillColor="#16213E"
+            android:pathData="M20,60h15v15h-15z"/>
+        <path
+            android:fillColor="#16213E"
+            android:pathData="M40,60h15v15h-15z"/>
+        <path
+            android:fillColor="#E94560"
+            android:pathData="M60,60h15v15h-15z"/>
+    </group>
+</vector>

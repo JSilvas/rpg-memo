@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme -->
+    <style name="Theme.Memo" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
+    <!--
+        CRITICAL: Overlay theme for EditorOverlayActivity
+        Phase 0 validation depends on this feeling seamless on Samsung One UI
+    -->
+    <style name="Theme.Overlay" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Transparent window -->
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+
+        <!-- No animation - instant launch -->
+        <item name="android:windowAnimationStyle">@null</item>
+
+        <!-- Dim background -->
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.5</item>
+
+        <!-- No system decorations -->
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowFullscreen">false</item>
+
+        <!-- Samsung One UI optimizations -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

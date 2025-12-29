@@ -1,0 +1,44 @@
+# Android
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.ap_
+*.aab
+
+# Gradle
+.gradle/
+build/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Android Studio
+*.iml
+.idea/
+.navigation/
+captures/
+output.json
+*.hprof
+
+# Keystore
+*.jks
+*.keystore
+
+# Log Files
+*.log
+
+# Local config
+local.properties
+
+# NDK
+obj/
+
+# OS-specific
+.DS_Store
+Thumbs.db
