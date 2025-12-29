@@ -1,0 +1,76 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e3b5a', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2cd9c5', 'lineColor': '#e67b7b', 'secondaryColor': '#0a1526', 'tertiaryColor': '#2e5884'}}}%%
+
+flowchart TB
+    subgraph HomeScreen["📱 Home Screen"]
+        Widget["Widget\n(RemoteViews + ImageView)"]
+    end
+
+    subgraph EditorOverlay["🎨 Editor Overlay Activity"]
+        Canvas["Interactive Canvas\n(Custom View)"]
+        BottomBar["Bottom Bar\n(Counters + Multi-select)"]
+        RadialMenu["Radial Action Menu\n(Check/Transfer/Delete)"]
+        EditModal["Edit Modal\n(Title/Desc/Emoji)"]
+    end
+
+    subgraph DataLayer["💾 Data Layer"]
+        GridState["GridState\n(DataStore/Proto)"]
+        MemoRepo["MemoRepository"]
+        Stats["StatsTracker\n(Counters)"]
+    end
+
+    subgraph RenderEngine["🖼️ Render Engine"]
+        BitmapGen["BitmapGenerator"]
+        AgingCalc["AgingCalculator\n(decay visuals)"]
+        BlockRenderer["BlockRenderer\n(colors, textures, emoji)"]
+    end
+
+    subgraph AndroidSystem["⚙️ Android System"]
+        AppWidgetManager["AppWidgetManager"]
+        ShareSheet["System Share Sheet"]
+        HapticService["HapticFeedback"]
+    end
+
+    %% User Interactions
+    Widget -->|"Tap anywhere"| EditorOverlay
+    Canvas -->|"Tap empty cell"| EditModal
+    Canvas -->|"Tap block"| EditModal
+    Canvas -->|"Long-press block"| RadialMenu
+    Canvas -->|"Drag block"| MemoRepo
+    
+    %% Radial Menu Actions
+    RadialMenu -->|"✓ Check"| Stats
+    RadialMenu -->|"↗ Transfer"| ShareSheet
+    RadialMenu -->|"✕ Delete"| Stats
+    RadialMenu -->|"Any action"| HapticService
+
+    %% Data Flow
+    EditModal -->|"Save"| MemoRepo
+    MemoRepo -->|"CRUD"| GridState
+    GridState -->|"onChange"| BitmapGen
+    Stats -->|"persist"| GridState
+
+    %% Render Pipeline
+    BitmapGen -->|"for each memo"| AgingCalc
+    AgingCalc -->|"decay state"| BlockRenderer
+    BlockRenderer -->|"draw to canvas"| BitmapGen
+    BitmapGen -->|"final Bitmap"| AppWidgetManager
+    AppWidgetManager -->|"updateWidget()"| Widget
+
+    %% Editor Lifecycle
+    EditorOverlay -->|"onPause()"| BitmapGen
+    
+    %% Grid Full State
+    Canvas -->|"Grid full + tap empty"| HapticService
+    
+    %% Styling
+    classDef widget fill:#2cd9c5,stroke:#fff,color:#0a1526
+    classDef editor fill:#e67b7b,stroke:#fff,color:#0a1526
+    classDef data fill:#1e3b5a,stroke:#2cd9c5,color:#fff
+    classDef render fill:#6a9cd6,stroke:#fff,color:#0a1526
+    classDef system fill:#2e5884,stroke:#e67b7b,color:#fff
+
+    class Widget widget
+    class Canvas,BottomBar,RadialMenu,EditModal editor
+    class GridState,MemoRepo,Stats data
+    class BitmapGen,AgingCalc,BlockRenderer render
+    class AppWidgetManager,ShareSheet,HapticService system
