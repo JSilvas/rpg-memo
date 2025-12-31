@@ -17,14 +17,13 @@
         <!-- No animation - instant launch -->
         <item name="android:windowAnimationStyle">@null</item>
 
-        <!-- Dim background -->
+        <!-- Dim background (requires windowIsFloating=true) -->
         <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:backgroundDimAmount">0.5</item>
+        <item name="android:backgroundDimAmount">0.6</item>
+        <item name="android:windowIsFloating">true</item>
 
         <!-- No system decorations -->
         <item name="android:windowContentOverlay">@null</item>
-        <item name="android:windowIsFloating">false</item>
-        <item name="android:windowFullscreen">false</item>
 
         <!-- Samsung One UI optimizations -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
