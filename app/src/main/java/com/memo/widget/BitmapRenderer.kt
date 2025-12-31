@@ -5,11 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import com.memo.widget.model.TaskBlock
+import com.memo.widget.model.Memo
 import kotlin.math.min
 
 /**
- * Phase 1: Renders a 4x4 grid with task blocks as a Bitmap for the widget.
+ * Phase 1: Renders a 4x4 grid with memos as a Bitmap for the widget.
+ * Aligned with Phase 1 specification.
  */
 class BitmapRenderer(private val context: Context) {
 
@@ -92,15 +93,15 @@ class BitmapRenderer(private val context: Context) {
     }
 
     /**
-     * Phase 1: Renders the widget bitmap with task blocks.
+     * Phase 1: Renders the widget bitmap with memos.
      * @param widthPx Widget width in pixels
      * @param heightPx Widget height in pixels
-     * @param blocks List of task blocks to render
+     * @param memos List of memos to render
      */
-    fun renderWidgetWithBlocks(
+    fun renderWidgetWithMemos(
         widthPx: Int,
         heightPx: Int,
-        blocks: List<TaskBlock>
+        memos: List<Memo>
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -128,34 +129,34 @@ class BitmapRenderer(private val context: Context) {
             }
         }
 
-        // Draw task blocks
+        // Draw memos
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.WHITE
             textSize = 12f * context.resources.displayMetrics.density
             textAlign = Paint.Align.CENTER
         }
 
-        blocks.forEach { block ->
-            val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = block.getColor().hex
+        memos.forEach { memo ->
+            val memoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor(memo.colorHex)
                 style = Paint.Style.FILL
             }
 
-            // Calculate block rectangle
-            val x = block.position.x * cellSize + CELL_PADDING
-            val y = block.position.y * cellSize + CELL_PADDING
-            val width = block.shape.width * cellSize - CELL_PADDING * 2
-            val height = block.shape.height * cellSize - CELL_PADDING * 2
+            // Calculate memo rectangle
+            val x = memo.originX * cellSize + CELL_PADDING
+            val y = memo.originY * cellSize + CELL_PADDING
+            val width = memo.width * cellSize - CELL_PADDING * 2
+            val height = memo.height * cellSize - CELL_PADDING * 2
 
             val rect = RectF(x, y, x + width, y + height)
 
-            // Draw block background
-            canvas.drawRoundRect(rect, CORNER_RADIUS, CORNER_RADIUS, blockPaint)
+            // Draw memo background
+            canvas.drawRoundRect(rect, CORNER_RADIUS, CORNER_RADIUS, memoPaint)
             canvas.drawRoundRect(rect, CORNER_RADIUS, CORNER_RADIUS, borderPaint)
 
             // Draw text
             canvas.drawText(
-                block.title,
+                memo.title,
                 x + width / 2,
                 y + height / 2 + textPaint.textSize / 3,
                 textPaint

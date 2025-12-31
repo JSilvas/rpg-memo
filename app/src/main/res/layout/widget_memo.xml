@@ -1,8 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Phase 0: Single ImageView for Bitmap rendering -->
-<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_image"
+<!-- Phase 1: ImageView with grid overlay for cell-specific taps -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:scaleType="fitXY"
-    android:contentDescription="@string/widget_description" />
+    android:layout_height="match_parent">
+
+    <!-- Background bitmap -->
+    <ImageView
+        android:id="@+id/widget_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:contentDescription="@string/widget_description" />
+
+    <!-- Grid overlay for tap detection (4x4 grid) -->
+    <GridLayout
+        android:id="@+id/widget_grid_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:rowCount="4"
+        android:columnCount="4">
+
+        <!-- Row 0 -->
+        <FrameLayout android:id="@+id/cell_0_0" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="0" android:layout_column="0"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_1_0" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="0" android:layout_column="1"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_2_0" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="0" android:layout_column="2"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_3_0" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="0" android:layout_column="3"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+
+        <!-- Row 1 -->
+        <FrameLayout android:id="@+id/cell_0_1" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="1" android:layout_column="0"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_1_1" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="1" android:layout_column="1"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_2_1" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="1" android:layout_column="2"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_3_1" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="1" android:layout_column="3"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+
+        <!-- Row 2 -->
+        <FrameLayout android:id="@+id/cell_0_2" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="2" android:layout_column="0"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_1_2" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="2" android:layout_column="1"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_2_2" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="2" android:layout_column="2"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_3_2" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="2" android:layout_column="3"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+
+        <!-- Row 3 -->
+        <FrameLayout android:id="@+id/cell_0_3" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="3" android:layout_column="0"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_1_3" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="3" android:layout_column="1"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_2_3" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="3" android:layout_column="2"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+        <FrameLayout android:id="@+id/cell_3_3" android:layout_width="0dp" android:layout_height="0dp"
+            android:layout_row="3" android:layout_column="3"
+            android:layout_rowWeight="1" android:layout_columnWeight="1" />
+    </GridLayout>
+
+</FrameLayout>
