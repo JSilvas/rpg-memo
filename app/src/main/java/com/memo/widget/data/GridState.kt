@@ -134,6 +134,32 @@ data class GridState(
     }
 
     /**
+     * Resize a memo to new dimensions
+     * Returns new GridState with memo resized, or null if new size would cause overlap
+     */
+    fun resizeMemo(memoId: String, newWidth: Int, newHeight: Int): GridState? {
+        val memo = memos.find { it.id == memoId } ?: return null
+
+        // Check if new size is valid (1-4 in each dimension)
+        if (newWidth < 1 || newWidth > 4 || newHeight < 1 || newHeight > 4) {
+            return null
+        }
+
+        // Check if resized memo would fit in grid with no overlaps
+        if (!canPlace(memo, memo.originX, memo.originY, newWidth, newHeight)) {
+            return null
+        }
+
+        val resizedMemo = memo.resizeTo(newWidth, newHeight) ?: return null
+
+        val updatedMemos = memos.map {
+            if (it.id == memoId) resizedMemo else it
+        }
+
+        return copy(memos = updatedMemos)
+    }
+
+    /**
      * Remove a memo from the grid
      * Returns new GridState with memo removed and stats updated
      */

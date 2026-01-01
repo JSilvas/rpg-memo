@@ -7,19 +7,19 @@
 
     <!--
         CRITICAL: Overlay theme for EditorOverlayActivity
-        Phase 0 validation depends on this feeling seamless on Samsung One UI
+        Fully transparent to feel like interacting directly with widget
     -->
     <style name="Theme.Overlay" parent="android:Theme.Material.Light.NoActionBar">
-        <!-- Transparent window -->
+        <!-- Fully transparent window - no dim -->
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
 
         <!-- No animation - instant launch -->
         <item name="android:windowAnimationStyle">@null</item>
 
-        <!-- Dim background (requires windowIsFloating=true) -->
-        <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:backgroundDimAmount">0.6</item>
+        <!-- NO dim - fully transparent -->
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:backgroundDimAmount">0.0</item>
         <item name="android:windowIsFloating">true</item>
 
         <!-- No system decorations -->

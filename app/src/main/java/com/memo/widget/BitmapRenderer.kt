@@ -49,6 +49,69 @@ class BitmapRenderer(private val context: Context) {
     }
 
     /**
+     * Helper function to draw wrapped text within bounds.
+     * Splits text into lines that fit within the given width and centers them vertically.
+     */
+    private fun drawWrappedText(
+        canvas: Canvas,
+        text: String,
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        paint: Paint,
+        padding: Float
+    ) {
+        if (text.isBlank()) return
+
+        val availableWidth = width - padding * 2
+        val availableHeight = height - padding * 2
+
+        // Split text into words
+        val words = text.split(" ")
+        val lines = mutableListOf<String>()
+        var currentLine = ""
+
+        // Build lines that fit within available width
+        words.forEach { word ->
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+            val testWidth = paint.measureText(testLine)
+
+            if (testWidth <= availableWidth) {
+                currentLine = testLine
+            } else {
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine)
+                }
+                currentLine = word
+            }
+        }
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine)
+        }
+
+        // Calculate total text height
+        val lineHeight = paint.textSize * 1.2f
+        val totalTextHeight = lines.size * lineHeight
+
+        // Calculate starting Y position (vertically centered)
+        val startY = y + padding + (availableHeight - totalTextHeight) / 2 + paint.textSize
+
+        // Draw each line
+        lines.forEachIndexed { index, line ->
+            val lineY = startY + index * lineHeight
+            if (lineY < y + height - padding) { // Only draw if within bounds
+                canvas.drawText(
+                    line,
+                    x + width / 2,
+                    lineY,
+                    paint
+                )
+            }
+        }
+    }
+
+    /**
      * Renders the widget bitmap.
      * @param widthPx Widget width in pixels
      * @param heightPx Widget height in pixels
@@ -106,18 +169,21 @@ class BitmapRenderer(private val context: Context) {
         val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        // Calculate grid dimensions
+        // Calculate grid dimensions with padding to match overlay
+        // Overlay uses 8dp padding converted to px
+        val paddingPx = 8f * context.resources.displayMetrics.density
         val size = min(widthPx, heightPx)
-        val cellSize = (size / GRID_SIZE).toFloat()
+        val drawableSize = size - (paddingPx * 2)
+        val cellSize = (drawableSize / GRID_SIZE).toFloat()
 
         // Draw background
         canvas.drawRect(0f, 0f, widthPx.toFloat(), heightPx.toFloat(), backgroundPaint)
 
-        // Draw empty grid cells
+        // Draw empty grid cells (offset by padding to match overlay)
         for (row in 0 until GRID_SIZE) {
             for (col in 0 until GRID_SIZE) {
-                val x = col * cellSize + CELL_PADDING
-                val y = row * cellSize + CELL_PADDING
+                val x = paddingPx + col * cellSize + CELL_PADDING
+                val y = paddingPx + row * cellSize + CELL_PADDING
                 val rect = RectF(
                     x,
                     y,
@@ -142,9 +208,9 @@ class BitmapRenderer(private val context: Context) {
                 style = Paint.Style.FILL
             }
 
-            // Calculate memo rectangle
-            val x = memo.originX * cellSize + CELL_PADDING
-            val y = memo.originY * cellSize + CELL_PADDING
+            // Calculate memo rectangle (offset by padding to match overlay)
+            val x = paddingPx + memo.originX * cellSize + CELL_PADDING
+            val y = paddingPx + memo.originY * cellSize + CELL_PADDING
             val width = memo.width * cellSize - CELL_PADDING * 2
             val height = memo.height * cellSize - CELL_PADDING * 2
 
@@ -154,12 +220,16 @@ class BitmapRenderer(private val context: Context) {
             canvas.drawRoundRect(rect, CORNER_RADIUS, CORNER_RADIUS, memoPaint)
             canvas.drawRoundRect(rect, CORNER_RADIUS, CORNER_RADIUS, borderPaint)
 
-            // Draw text
-            canvas.drawText(
-                memo.title,
-                x + width / 2,
-                y + height / 2 + textPaint.textSize / 3,
-                textPaint
+            // Draw text (wrapped to fit within memo bounds)
+            drawWrappedText(
+                canvas = canvas,
+                text = memo.title,
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                paint = textPaint,
+                padding = 8f * context.resources.displayMetrics.density
             )
         }
 

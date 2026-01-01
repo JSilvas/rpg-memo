@@ -6,9 +6,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,6 +56,7 @@ class EditorOverlayActivity : ComponentActivity() {
     private lateinit var repository: MemoRepository
     private var widgetId: Int = 0
     private var gridState by mutableStateOf<GridState?>(null)
+    private var widgetSizeDp by mutableStateOf(300)
 
     // Edit Modal state
     data class EditModalState(
@@ -61,7 +64,8 @@ class EditorOverlayActivity : ComponentActivity() {
         val memoId: String? = null,
         val cellX: Int? = null,
         val cellY: Int? = null,
-        val initialTitle: String = ""
+        val initialTitle: String = "",
+        val initialDescription: String = ""
     )
     private var editModalState by mutableStateOf<EditModalState?>(null)
 
@@ -70,6 +74,20 @@ class EditorOverlayActivity : ComponentActivity() {
 
         widgetId = intent.getIntExtra("WIDGET_ID", 0)
         repository = MemoRepository(this)
+
+        // Get widget dimensions to match overlay to actual widget size
+        try {
+            val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(this)
+            val options = appWidgetManager.getAppWidgetOptions(widgetId)
+            val minWidth = options.getInt(android.appwidget.AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
+            val minHeight = options.getInt(android.appwidget.AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 250)
+            // Use the smaller dimension to match widget's square grid calculation
+            widgetSizeDp = kotlin.math.min(minWidth, minHeight)
+            Log.d(TAG, "Widget dimensions: ${minWidth}x${minHeight}dp, using ${widgetSizeDp}dp for grid")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get widget dimensions, using default 300dp", e)
+            widgetSizeDp = 300
+        }
 
         // Check if specific cell was tapped on widget
         val tappedCellX = intent.getIntExtra("CELL_X", -1)
@@ -101,7 +119,8 @@ class EditorOverlayActivity : ComponentActivity() {
                     editModalState = EditModalState(
                         isNewMemo = false,
                         memoId = memo.id,
-                        initialTitle = memo.title
+                        initialTitle = memo.title,
+                        initialDescription = memo.description ?: ""
                     )
                     Log.d(TAG, "Updated Edit Modal to edit existing memo: ${memo.title}")
                 }
@@ -113,6 +132,7 @@ class EditorOverlayActivity : ComponentActivity() {
             if (state != null) {
                 EditorOverlayContent(
                     gridState = state,
+                    widgetSizeDp = widgetSizeDp,
                     editModalState = editModalState,
                     onCellTap = { x, y ->
                         // Check if cell is empty or has a memo
@@ -122,7 +142,8 @@ class EditorOverlayActivity : ComponentActivity() {
                             editModalState = EditModalState(
                                 isNewMemo = false,
                                 memoId = memo.id,
-                                initialTitle = memo.title
+                                initialTitle = memo.title,
+                                initialDescription = memo.description ?: ""
                             )
                             Log.d(TAG, "Editing memo: ${memo.title}")
                         } else {
@@ -131,7 +152,8 @@ class EditorOverlayActivity : ComponentActivity() {
                                 isNewMemo = true,
                                 cellX = x,
                                 cellY = y,
-                                initialTitle = ""
+                                initialTitle = "",
+                                initialDescription = ""
                             )
                             Log.d(TAG, "Creating new memo at ($x, $y)")
                         }
@@ -145,14 +167,26 @@ class EditorOverlayActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onEditModalSave = { title ->
+                    onMemoResize = { memoId, newWidth, newHeight ->
+                        lifecycleScope.launch {
+                            val newState = state.resizeMemo(memoId, newWidth, newHeight)
+                            if (newState != null) {
+                                gridState = newState
+                                Log.d(TAG, "Memo $memoId resized to ${newWidth}x$newHeight")
+                            } else {
+                                Log.w(TAG, "Failed to resize memo $memoId - invalid size or overlap")
+                            }
+                        }
+                    },
+                    onEditModalSave = { title, description ->
                         lifecycleScope.launch {
                             val modal = editModalState
                             if (modal != null) {
                                 if (modal.isNewMemo) {
-                                    // Create new memo
+                                    // Create new 1x1 memo
                                     val memo = Memo(
                                         title = title,
+                                        description = description.ifBlank { null },
                                         originX = modal.cellX!!,
                                         originY = modal.cellY!!,
                                         width = 1,
@@ -169,7 +203,10 @@ class EditorOverlayActivity : ComponentActivity() {
                                     // Update existing memo
                                     val existingMemo = state.getMemo(modal.memoId!!)
                                     if (existingMemo != null) {
-                                        val updatedMemo = existingMemo.copy(title = title).touched()
+                                        val updatedMemo = existingMemo.copy(
+                                            title = title,
+                                            description = description.ifBlank { null }
+                                        ).touched()
                                         val newState = state.updateMemo(updatedMemo)
                                         gridState = newState
                                         Log.d(TAG, "Updated memo: $title")
@@ -222,81 +259,146 @@ class EditorOverlayActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Resize handle types for memo blocks
+ */
+enum class ResizeHandle { NONE, RIGHT, BOTTOM, BOTTOM_RIGHT }
+
+/**
+ * Helper function to draw wrapped text on a native Canvas.
+ */
+fun drawWrappedTextOnCanvas(
+    canvas: android.graphics.Canvas,
+    text: String,
+    x: Float,
+    y: Float,
+    width: Float,
+    height: Float,
+    paint: android.graphics.Paint,
+    padding: Float
+) {
+    if (text.isBlank()) return
+
+    val availableWidth = width - padding * 2
+    val availableHeight = height - padding * 2
+
+    // Split text into words
+    val words = text.split(" ")
+    val lines = mutableListOf<String>()
+    var currentLine = ""
+
+    // Build lines that fit within available width
+    words.forEach { word ->
+        val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+        val testWidth = paint.measureText(testLine)
+
+        if (testWidth <= availableWidth) {
+            currentLine = testLine
+        } else {
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine)
+            }
+            currentLine = word
+        }
+    }
+    if (currentLine.isNotEmpty()) {
+        lines.add(currentLine)
+    }
+
+    // Calculate total text height
+    val lineHeight = paint.textSize * 1.2f
+    val totalTextHeight = lines.size * lineHeight
+
+    // Calculate starting Y position (vertically centered)
+    val startY = y + padding + (availableHeight - totalTextHeight) / 2 + paint.textSize
+
+    // Draw each line
+    lines.forEachIndexed { index, line ->
+        val lineY = startY + index * lineHeight
+        if (lineY < y + height - padding) { // Only draw if within bounds
+            canvas.drawText(
+                line,
+                x + width / 2,
+                lineY,
+                paint
+            )
+        }
+    }
+}
+
 @Composable
 fun EditorOverlayContent(
     gridState: GridState,
+    widgetSizeDp: Int,
     editModalState: EditorOverlayActivity.EditModalState?,
     onCellTap: (Int, Int) -> Unit,
     onMemoMove: (String, Int, Int) -> Unit,
-    onEditModalSave: (String) -> Unit,
+    onMemoResize: (String, Int, Int) -> Unit,
+    onEditModalSave: (String, String) -> Unit,
     onEditModalDismiss: () -> Unit,
     onClose: () -> Unit
 ) {
-    // Phase 0 colors (keeping retro palette)
+    // Match widget colors exactly
     val bgColor = Color(0xFF1A1A2E)
     val gridColor = Color(0xFF16213E)
     val borderColor = Color(0xFF0F3460)
-    val dimColor = Color(0x80000000)
-
-    val density = LocalDensity.current
-    val gridSizeDp = 300.dp
-    val gridSizePx = with(density) { gridSizeDp.toPx() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(dimColor)
-            .pointerInput(editModalState) {
-                detectTapGestures { tapOffset ->
-                    // Calculate grid bounds (centered in screen)
-                    val screenWidth = size.width
-                    val screenHeight = size.height
-                    val gridLeft = (screenWidth - gridSizePx) / 2f
-                    val gridTop = (screenHeight - gridSizePx) / 2f
-                    val gridRight = gridLeft + gridSizePx
-                    val gridBottom = gridTop + gridSizePx
-
-                    // Check if tap is outside grid bounds
-                    val isOutsideGrid = tapOffset.x < gridLeft || tapOffset.x > gridRight ||
-                                       tapOffset.y < gridTop || tapOffset.y > gridBottom
-
-                    if (isOutsideGrid) {
-                        // Tap outside grid → close both modal and overlay
-                        if (editModalState != null) {
-                            onEditModalDismiss() // Close modal first
-                        }
-                        onClose() // Then close overlay
-                    } else if (editModalState == null) {
-                        // Tap inside grid with no modal → close overlay
-                        onClose()
-                    }
-                    // If tap inside grid with modal open → Dialog handles it
-                }
-            },
-        contentAlignment = Alignment.Center
+            .background(Color.Transparent) // Fully transparent when no modal
     ) {
-        // Grid Canvas
-        MemoGridCanvas(
-            gridState = gridState,
-            bgColor = bgColor,
-            gridColor = gridColor,
-            borderColor = borderColor,
-            onCellTap = onCellTap,
-            onMemoMove = onMemoMove
-        )
-
-        // Edit Modal
-        if (editModalState != null) {
-            EditMemoModal(
-                title = editModalState.initialTitle,
-                isNewMemo = editModalState.isNewMemo,
-                onSave = onEditModalSave,
-                onDismiss = onEditModalDismiss,
-                onDismissWithOverlay = {
-                    onEditModalDismiss() // Close modal
-                    onClose() // Close overlay
-                }
+        // Grid positioned at top-start (where widgets typically are)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 16.dp, top = 120.dp) // Typical widget position
+        ) {
+            MemoGridCanvas(
+                gridState = gridState,
+                bgColor = bgColor,
+                gridColor = gridColor,
+                borderColor = borderColor,
+                onCellTap = onCellTap,
+                onMemoMove = onMemoMove,
+                onMemoResize = onMemoResize,
+                isCalibrating = false,
+                gridSizeDp = widgetSizeDp.dp
             )
+        }
+
+        // Dim background when modal is open
+        if (editModalState != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f)) // Dim when modal open
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            // Tap anywhere outside modal to dismiss
+                            onEditModalDismiss()
+                        }
+                    }
+            )
+
+            // Edit Modal - centered over grid
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(top = 120.dp) // Offset to align with grid area
+            ) {
+                EditMemoModal(
+                    title = editModalState.initialTitle,
+                    description = editModalState.initialDescription,
+                    isNewMemo = editModalState.isNewMemo,
+                    onSave = onEditModalSave,
+                    onDismiss = onEditModalDismiss,
+                    onDismissWithOverlay = {
+                        onEditModalDismiss() // Close modal
+                        onClose() // Close overlay
+                    }
+                )
+            }
         }
     }
 }
@@ -304,83 +406,49 @@ fun EditorOverlayContent(
 @Composable
 fun EditMemoModal(
     title: String,
+    description: String = "",
     isNewMemo: Boolean,
-    onSave: (String) -> Unit,
+    onSave: (String, String) -> Unit, // (title, description)
     onDismiss: () -> Unit,
     onDismissWithOverlay: () -> Unit
 ) {
     var editedTitle by remember { mutableStateOf(title) }
+    var editedDescription by remember { mutableStateOf(description) }
 
-    // Custom modal overlay instead of Dialog for better tap control
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0x80000000)) // Semi-transparent background
-            .pointerInput(Unit) {
-                detectTapGestures { tapOffset ->
-                    // Calculate modal bounds (card centered with padding)
-                    val modalWidth = size.width - 32.dp.toPx() // 16dp padding on each side
-                    val modalLeft = 16.dp.toPx()
-                    val modalRight = modalLeft + modalWidth
+    // Auto-save helper function
+    fun autoSave() {
+        if (editedTitle.isNotBlank()) {
+            onSave(editedTitle.trim(), editedDescription.trim())
+        }
+    }
 
-                    // Modal is centered vertically
-                    val modalHeight = 250.dp.toPx() // Approximate modal height
-                    val modalTop = (size.height - modalHeight) / 2f
-                    val modalBottom = modalTop + modalHeight
-
-                    // Check if tap is outside modal bounds
-                    val isOutsideModal = tapOffset.x < modalLeft || tapOffset.x > modalRight ||
-                                        tapOffset.y < modalTop || tapOffset.y > modalBottom
-
-                    if (isOutsideModal) {
-                        // Calculate grid bounds (300dp centered)
-                        val gridSizePx = 300.dp.toPx()
-                        val gridLeft = (size.width - gridSizePx) / 2f
-                        val gridTop = (size.height - gridSizePx) / 2f
-                        val gridRight = gridLeft + gridSizePx
-                        val gridBottom = gridTop + gridSizePx
-
-                        val isOutsideGrid = tapOffset.x < gridLeft || tapOffset.x > gridRight ||
-                                           tapOffset.y < gridTop || tapOffset.y > gridBottom
-
-                        if (isOutsideGrid) {
-                            // Outside both modal and grid → close both
-                            onDismissWithOverlay()
-                        } else {
-                            // Outside modal but inside grid → close modal only
-                            onDismiss()
-                        }
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
+    // Compact card modal
+    Box {
         Card(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+                .width(280.dp), // Compact width
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
                 containerColor = Color(0xFF1A1A2E)
             )
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Title
-                Text(
-                    text = if (isNewMemo) "New Memo" else "Edit Memo",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Title
+                    Text(
+                        text = if (isNewMemo) "New Memo" else "Edit Memo",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
 
-                // Text field
+                // Title field (max ~3 words)
                 OutlinedTextField(
                     value = editedTitle,
-                    onValueChange = { editedTitle = it },
-                    label = { Text("Title") },
+                    onValueChange = { if (it.length <= 30) editedTitle = it },
+                    label = { Text("Title (max 3 words)") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
@@ -394,30 +462,58 @@ fun EditMemoModal(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = Color.Gray)
-                    }
-                    Button(
-                        onClick = {
-                            if (editedTitle.isNotBlank()) {
-                                onSave(editedTitle.trim())
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2CD9C5),
-                            contentColor = Color(0xFF0A1526)
-                        ),
-                        enabled = editedTitle.isNotBlank()
-                    ) {
-                        Text("Save")
-                    }
+                // Description field (optional, not shown in grid)
+                OutlinedTextField(
+                    value = editedDescription,
+                    onValueChange = { editedDescription = it },
+                    label = { Text("Description (optional)") },
+                    maxLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF2CD9C5),
+                        unfocusedBorderColor = Color(0xFF16213E),
+                        focusedLabelColor = Color(0xFF2CD9C5),
+                        unfocusedLabelColor = Color.Gray,
+                        cursorColor = Color(0xFF2CD9C5)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Hints
+                Column {
+                    Text(
+                        text = "• Drag edges/corners to resize",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = "• Tap outside to save & close",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
                 }
             }
+        }
+
+        // Close button (X in top-right corner of modal)
+        IconButton(
+            onClick = {
+                autoSave()
+                onDismiss()
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(28.dp)
+                .background(Color(0xFF2CD9C5), CircleShape)
+        ) {
+            Text(
+                text = "✕",
+                color = Color(0xFF0A1526),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -429,16 +525,33 @@ fun MemoGridCanvas(
     gridColor: Color,
     borderColor: Color,
     onCellTap: (Int, Int) -> Unit,
-    onMemoMove: (String, Int, Int) -> Unit
+    onMemoMove: (String, Int, Int) -> Unit,
+    onMemoResize: (String, Int, Int) -> Unit,
+    isCalibrating: Boolean = false,
+    gridSizeDp: androidx.compose.ui.unit.Dp = 300.dp
 ) {
     val density = LocalDensity.current
-    val gridSizeDp = 300.dp
+    val canvasPaddingDp = 8.dp
     val gridSizePx = with(density) { gridSizeDp.toPx() }
-    val cellSize = gridSizePx / EditorOverlayActivity.GRID_SIZE
+    val canvasPaddingPx = with(density) { canvasPaddingDp.toPx() }
+    // Calculate cell size based on drawable area (after padding)
+    val drawableAreaPx = gridSizePx - (canvasPaddingPx * 2)
+    val cellSize = drawableAreaPx / EditorOverlayActivity.GRID_SIZE
 
+    // Move state
     var draggedMemo by remember { mutableStateOf<Memo?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var isDragging by remember { mutableStateOf(false) }
+
+    // Resize state
+    var resizingMemo by remember { mutableStateOf<Memo?>(null) }
+    var resizeHandle by remember { mutableStateOf(ResizeHandle.NONE) }
+    var resizeStartSize by remember { mutableStateOf(Pair(0, 0)) }
+    var resizeDelta by remember { mutableStateOf(Offset.Zero) }
+    var isResizing by remember { mutableStateOf(false) }
+
+    // Handle detection threshold (in pixels)
+    val handleSize = 20f
 
     Canvas(
         modifier = Modifier
@@ -460,31 +573,102 @@ fun MemoGridCanvas(
                     onDragStart = { offset ->
                         val col = (offset.x / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
                         val row = (offset.y / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - 1)
-                        draggedMemo = gridState.getMemoAtCell(col, row)
-                        dragOffset = Offset.Zero
-                        isDragging = true
+                        val memo = gridState.getMemoAtCell(col, row)
+
+                        if (memo != null) {
+                            // Calculate memo bounds
+                            val memoLeft = memo.originX * cellSize
+                            val memoTop = memo.originY * cellSize
+                            val memoRight = memoLeft + memo.width * cellSize
+                            val memoBottom = memoTop + memo.height * cellSize
+
+                            // Check if tap is on resize handles
+                            val onRightEdge = offset.x >= memoRight - handleSize && offset.x <= memoRight
+                            val onBottomEdge = offset.y >= memoBottom - handleSize && offset.y <= memoBottom
+                            val onBottomRightCorner = onRightEdge && onBottomEdge
+
+                            if (onBottomRightCorner) {
+                                // Start corner resize
+                                resizingMemo = memo
+                                resizeHandle = ResizeHandle.BOTTOM_RIGHT
+                                resizeStartSize = Pair(memo.width, memo.height)
+                                resizeDelta = Offset.Zero
+                                isResizing = true
+                            } else if (onRightEdge) {
+                                // Start right edge resize
+                                resizingMemo = memo
+                                resizeHandle = ResizeHandle.RIGHT
+                                resizeStartSize = Pair(memo.width, memo.height)
+                                resizeDelta = Offset.Zero
+                                isResizing = true
+                            } else if (onBottomEdge) {
+                                // Start bottom edge resize
+                                resizingMemo = memo
+                                resizeHandle = ResizeHandle.BOTTOM
+                                resizeStartSize = Pair(memo.width, memo.height)
+                                resizeDelta = Offset.Zero
+                                isResizing = true
+                            } else {
+                                // Start move
+                                draggedMemo = memo
+                                dragOffset = Offset.Zero
+                                isDragging = true
+                            }
+                        }
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        dragOffset += dragAmount
+                        if (isResizing) {
+                            resizeDelta += dragAmount
+                        } else if (isDragging) {
+                            dragOffset += dragAmount
+                        }
                     },
                     onDragEnd = {
-                        draggedMemo?.let { memo ->
-                            // Calculate center of the dragged memo
-                            val memoCenterX = memo.originX * cellSize + dragOffset.x + (memo.width * cellSize) / 2f
-                            val memoCenterY = memo.originY * cellSize + dragOffset.y + (memo.height * cellSize) / 2f
+                        if (isResizing) {
+                            resizingMemo?.let { memo ->
+                                // Calculate new size based on drag delta and handle type
+                                val widthDelta = (resizeDelta.x / cellSize).toInt()
+                                val heightDelta = (resizeDelta.y / cellSize).toInt()
 
-                            // Determine target position based on center
-                            val newCol = (memoCenterX / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - memo.width)
-                            val newRow = (memoCenterY / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - memo.height)
+                                val newWidth = when (resizeHandle) {
+                                    ResizeHandle.RIGHT, ResizeHandle.BOTTOM_RIGHT ->
+                                        (resizeStartSize.first + widthDelta).coerceIn(1, 4)
+                                    else -> resizeStartSize.first
+                                }
 
-                            if (newCol != memo.originX || newRow != memo.originY) {
-                                onMemoMove(memo.id, newCol, newRow)
+                                val newHeight = when (resizeHandle) {
+                                    ResizeHandle.BOTTOM, ResizeHandle.BOTTOM_RIGHT ->
+                                        (resizeStartSize.second + heightDelta).coerceIn(1, 4)
+                                    else -> resizeStartSize.second
+                                }
+
+                                if (newWidth != memo.width || newHeight != memo.height) {
+                                    onMemoResize(memo.id, newWidth, newHeight)
+                                }
                             }
+                            resizingMemo = null
+                            resizeHandle = ResizeHandle.NONE
+                            resizeDelta = Offset.Zero
+                            isResizing = false
+                        } else if (isDragging) {
+                            draggedMemo?.let { memo ->
+                                // Calculate center of the dragged memo
+                                val memoCenterX = memo.originX * cellSize + dragOffset.x + (memo.width * cellSize) / 2f
+                                val memoCenterY = memo.originY * cellSize + dragOffset.y + (memo.height * cellSize) / 2f
+
+                                // Determine target position based on center
+                                val newCol = (memoCenterX / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - memo.width)
+                                val newRow = (memoCenterY / cellSize).toInt().coerceIn(0, EditorOverlayActivity.GRID_SIZE - memo.height)
+
+                                if (newCol != memo.originX || newRow != memo.originY) {
+                                    onMemoMove(memo.id, newCol, newRow)
+                                }
+                            }
+                            draggedMemo = null
+                            dragOffset = Offset.Zero
+                            isDragging = false
                         }
-                        draggedMemo = null
-                        dragOffset = Offset.Zero
-                        isDragging = false
                     }
                 )
             }
@@ -508,7 +692,7 @@ fun MemoGridCanvas(
             }
         }
 
-        // Draw drop target indicator during drag
+        // Draw drop target indicator during drag (move)
         draggedMemo?.let { memo ->
             // Calculate center of the dragged memo
             val memoCenterX = memo.originX * cellSize + dragOffset.x + (memo.width * cellSize) / 2f
@@ -552,6 +736,56 @@ fun MemoGridCanvas(
             )
         }
 
+        // Draw resize preview during drag (resize)
+        resizingMemo?.let { memo ->
+            // Calculate new size based on drag delta
+            val widthDelta = (resizeDelta.x / cellSize).toInt()
+            val heightDelta = (resizeDelta.y / cellSize).toInt()
+
+            val newWidth = when (resizeHandle) {
+                ResizeHandle.RIGHT, ResizeHandle.BOTTOM_RIGHT ->
+                    (resizeStartSize.first + widthDelta).coerceIn(1, 4)
+                else -> resizeStartSize.first
+            }
+
+            val newHeight = when (resizeHandle) {
+                ResizeHandle.BOTTOM, ResizeHandle.BOTTOM_RIGHT ->
+                    (resizeStartSize.second + heightDelta).coerceIn(1, 4)
+                else -> resizeStartSize.second
+            }
+
+            // Check if new size is valid
+            val isValidResize = gridState.canPlace(memo, memo.originX, memo.originY, newWidth, newHeight)
+
+            // Draw preview outline
+            val previewX = memo.originX * cellSize + cellPadding
+            val previewY = memo.originY * cellSize + cellPadding
+            val previewWidth = newWidth * cellSize - cellPadding * 2
+            val previewHeight = newHeight * cellSize - cellPadding * 2
+
+            val previewColor = if (isValidResize) {
+                Color(0xFF2CD9C5) // Teal/green
+            } else {
+                Color(0xFFE94560) // Red
+            }
+
+            // Draw preview
+            drawRoundRect(
+                color = previewColor.copy(alpha = 0.3f),
+                topLeft = Offset(previewX, previewY),
+                size = Size(previewWidth, previewHeight),
+                cornerRadius = CornerRadius(cornerRadius, cornerRadius)
+            )
+
+            drawRoundRect(
+                color = previewColor,
+                topLeft = Offset(previewX, previewY),
+                size = Size(previewWidth, previewHeight),
+                cornerRadius = CornerRadius(cornerRadius, cornerRadius),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth * 2)
+            )
+        }
+
         // Draw memos
         gridState.memos.forEach { memo ->
             val isDraggingThis = draggedMemo?.id == memo.id
@@ -590,7 +824,7 @@ fun MemoGridCanvas(
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
             )
 
-            // Draw text
+            // Draw text (wrapped)
             drawIntoCanvas { canvas ->
                 val textPaint = android.graphics.Paint()
                 textPaint.isAntiAlias = true
@@ -598,11 +832,45 @@ fun MemoGridCanvas(
                 textPaint.color = android.graphics.Color.WHITE
                 textPaint.textAlign = android.graphics.Paint.Align.CENTER
 
-                canvas.nativeCanvas.drawText(
-                    memo.title,
-                    x + width / 2,
-                    y + height / 2 + textPaint.textSize / 3,
-                    textPaint
+                // Draw wrapped text
+                drawWrappedTextOnCanvas(
+                    canvas = canvas.nativeCanvas,
+                    text = memo.title,
+                    x = x,
+                    y = y,
+                    width = width,
+                    height = height,
+                    paint = textPaint,
+                    padding = 8.dp.toPx()
+                )
+            }
+
+            // Draw resize handles (right edge, bottom edge, bottom-right corner)
+            if (!isDraggingThis && resizingMemo?.id != memo.id) {
+                val handleColor = Color(0xFF2CD9C5).copy(alpha = 0.6f)
+                val handleThickness = 3f
+
+                // Right edge handle
+                drawLine(
+                    color = handleColor,
+                    start = Offset(x + width, y + height * 0.3f),
+                    end = Offset(x + width, y + height * 0.7f),
+                    strokeWidth = handleThickness
+                )
+
+                // Bottom edge handle
+                drawLine(
+                    color = handleColor,
+                    start = Offset(x + width * 0.3f, y + height),
+                    end = Offset(x + width * 0.7f, y + height),
+                    strokeWidth = handleThickness
+                )
+
+                // Bottom-right corner handle (small circle)
+                drawCircle(
+                    color = handleColor,
+                    radius = 6f,
+                    center = Offset(x + width, y + height)
                 )
             }
         }
