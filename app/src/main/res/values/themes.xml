@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base app theme -->
+    <style name="Theme.MemoWidget" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#FFE066</item>
+        <item name="colorPrimaryVariant">#1A0F2E</item>
+        <item name="colorOnPrimary">#000000</item>
+    </style>
+
+    <!-- Transparent overlay theme for full-screen interaction -->
+    <style name="Theme.TransparentOverlay" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowShowWallpaper">true</item>
+    </style>
+</resources>
