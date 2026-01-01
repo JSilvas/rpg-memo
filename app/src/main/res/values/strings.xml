@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Memo Widget</string>
+    <string name="widget_name">Memo Grid</string>
+    <string name="widget_description">RPG-style inventory memo grid</string>
+</resources>
